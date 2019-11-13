@@ -2,12 +2,6 @@
 
 
 [[projects]]
-  name = "github.com/BurntSushi/toml"
-  packages = ["."]
-  revision = "3012a1dbe2e4bd1391d42b32f0577cb7bbc7f005"
-  version = "v0.3.1"
-
-[[projects]]
   name = "github.com/Knetic/govaluate"
   packages = ["."]
   revision = "d216395917cc49052c7c7094cf57f09657ca08a8"
@@ -26,18 +20,6 @@
   version = "v3.3.10"
 
 [[projects]]
-  name = "github.com/coreos/go-systemd"
-  packages = ["journal"]
-  revision = "2d78030078ef61b3cae27f42ad6d0e46db51b339"
-  version = "v22.0.0"
-
-[[projects]]
-  name = "github.com/coreos/pkg"
-  packages = ["capnslog"]
-  revision = "97fdf19511ea361ae1c100dd393cc47f8dcfa1e1"
-  version = "v4"
-
-[[projects]]
   name = "github.com/gogo/protobuf"
   packages = ["gogoproto","proto","protoc-gen-gogo/descriptor"]
   revision = "636bf0302bc95575d69441b25a2603156ffdddf1"
@@ -50,12 +32,6 @@
   version = "v1.2.0"
 
 [[projects]]
-  name = "github.com/google/uuid"
-  packages = ["."]
-  revision = "0cd6bf5da1e1c83f8b45653022c74f71af0538a4"
-  version = "v1.1.1"
-
-[[projects]]
   name = "github.com/sebastianliu/etcd-adapter"
   packages = ["."]
   revision = "72c4620a4a4f9283681e96c67a909770a5530549"
@@ -63,39 +39,9 @@
 
 [[projects]]
   name = "go.etcd.io/etcd"
-  packages = ["auth/authpb","clientv3","clientv3/balancer","clientv3/balancer/connectivity","clientv3/balancer/picker","clientv3/balancer/resolver/endpoint","clientv3/credentials","etcdserver/api/v3rpc/rpctypes","etcdserver/etcdserverpb","mvcc/mvccpb","pkg/logutil","pkg/systemd","pkg/types","raft","raft/confchange","raft/quorum","raft/raftpb","raft/tracker"]
-  revision = "3cf2f69b5738fb702ba1a935590f36b52b18979b"
-  version = "v3.4.3"
-
-[[projects]]
-  name = "go.uber.org/atomic"
-  packages = ["."]
-  revision = "9dc4df04d0d1c39369750a9f6c32c39560672089"
-  version = "v1.5.0"
-
-[[projects]]
-  name = "go.uber.org/multierr"
-  packages = ["."]
-  revision = "824d08f79702fe5f54aca8400aa0d754318786e7"
-  version = "v1.4.0"
-
-[[projects]]
-  branch = "master"
-  name = "go.uber.org/tools"
-  packages = ["update-license"]
-  revision = "2cfd321de3ee5d5f8a5fda2521d1703478334d98"
-
-[[projects]]
-  name = "go.uber.org/zap"
-  packages = [".","buffer","internal/bufferpool","internal/color","internal/exit","zapcore"]
-  revision = "a6015e13fab9b744d96085308ce4e8f11bad1996"
-  version = "v1.12.0"
-
-[[projects]]
-  branch = "master"
-  name = "golang.org/x/lint"
-  packages = [".","golint"]
-  revision = "16217165b5de779cb6a5e4fc81fa9c1166fda457"
+  packages = ["clientv3"]
+  revision = "27fc7e2296f506182f58ce846e48f36b34fe6842"
+  version = "v3.3.10"
 
 [[projects]]
   branch = "master"
@@ -117,12 +63,6 @@
 
 [[projects]]
   branch = "master"
-  name = "golang.org/x/tools"
-  packages = ["go/analysis","go/analysis/passes/inspect","go/ast/astutil","go/ast/inspector","go/buildutil","go/gcexportdata","go/internal/gcimporter","go/internal/packagesdriver","go/packages","go/types/objectpath","go/types/typeutil","internal/fastwalk","internal/gopathwalk","internal/semver","internal/span"]
-  revision = "e33b02e766163a704f840c6decda2d0c5b15cb8f"
-
-[[projects]]
-  branch = "master"
   name = "google.golang.org/genproto"
   packages = ["googleapis/rpc/status"]
   revision = "b5d43981345bdb2c233eb4bf3277847b48c6fdc6"
@@ -133,15 +73,9 @@
   revision = "2e463a05d100327ca47ac218281906921038fd95"
   version = "v1.16.0"
 
-[[projects]]
-  name = "honnef.co/go/tools"
-  packages = ["arg","cmd/staticcheck","config","deprecated","facts","functions","go/types/typeutil","internal/cache","internal/passes/buildssa","internal/renameio","internal/sharedcheck","lint","lint/lintdsl","lint/lintutil","lint/lintutil/format","loader","printf","simple","ssa","ssautil","staticcheck","staticcheck/vrp","stylecheck","unused","version"]
-  revision = "afd67930eec2a9ed3e9b19f684d17a062285f16a"
-  version = "2019.2.3"
-
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "326ce6a99351d10c70be464af28bb26bc0fee2a058ddf8a4d1112fd91963d158"
+  inputs-digest = "f4061d6a94724172fc75c7bdcf660c2a33a7bda864ce4849498c4df6c304c5fe"
   solver-name = "gps-cdcl"
   solver-version = 1

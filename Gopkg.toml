@@ -3,7 +3,7 @@
   version = "1.9.1"
 
 [[constraint]]
-  name = "github.com/coreos/etcd"
+  name = "go.etcd.io/etcd"
   version = "3.3.10"
 
 [prune]

@@ -15,7 +15,7 @@ import (
 
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
-	client "go.etcd.io/etcd/clientv3"
+	client "go.etcd.io/etcd/client/v3"
 )
 
 const (

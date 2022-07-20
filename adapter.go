@@ -105,6 +105,8 @@ func (a *Adapter) close() {
 
 // LoadPolicy loads all of policys from ETCD
 func (a *Adapter) LoadPolicy(model model.Model) error {
+	defer recordOp("***loading policy***", time.Now())
+
 	var rule CasbinRule
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
@@ -131,27 +133,35 @@ func (a *Adapter) getRootKey() string {
 }
 
 func (a *Adapter) loadPolicy(rule CasbinRule, model model.Model) {
-	lineText := rule.PType
+	var line strings.Builder
+	line.WriteString(rule.PType)
+
 	if rule.V0 != "" {
-		lineText += ", " + rule.V0
+		line.WriteString(", ")
+		line.WriteString(rule.V0)
 	}
 	if rule.V1 != "" {
-		lineText += ", " + rule.V1
+		line.WriteString(", ")
+		line.WriteString(rule.V1)
 	}
 	if rule.V2 != "" {
-		lineText += ", " + rule.V2
+		line.WriteString(", ")
+		line.WriteString(rule.V2)
 	}
 	if rule.V3 != "" {
-		lineText += ", " + rule.V3
+		line.WriteString(", ")
+		line.WriteString(rule.V3)
 	}
 	if rule.V4 != "" {
-		lineText += ", " + rule.V4
+		line.WriteString(", ")
+		line.WriteString(rule.V4)
 	}
 	if rule.V5 != "" {
-		lineText += ", " + rule.V5
+		line.WriteString(", ")
+		line.WriteString(rule.V5)
 	}
 
-	persist.LoadPolicyLine(lineText, model)
+	persist.LoadPolicyLine(line.String(), model)
 }
 
 // This will rewrite all of policies in ETCD with the current data in Casbin
@@ -365,4 +375,8 @@ func (a *Adapter) removeFilteredPolicy(filter string) error {
 		}
 	}
 	return nil
+}
+
+func recordOp(msg string, start time.Time) {
+	fmt.Printf("%s %s\n", msg, time.Since(start))
 }

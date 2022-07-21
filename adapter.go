@@ -272,6 +272,53 @@ func (a *Adapter) RemovePolicy(sec string, ptype string, line []string) error {
 	return err
 }
 
+func (a *Adapter) AddPolicies(sec string, ptype string, rules [][]string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
+	defer cancel()
+
+	ops := []client.Op{}
+
+	for _, r := range rules {
+		rule := a.convertRule(ptype, r)
+		ruleData, _ := json.Marshal(rule)
+		ops = append(ops, client.OpPut(a.constructPath(rule.Key), string(ruleData)))
+	}
+
+	txnResp, err := a.conn.Txn(ctx).Then(ops...).Commit()
+	if err != nil {
+		return err
+	}
+
+	if !txnResp.Succeeded {
+		return errors.New("AddPolicies: transaction failed")
+	}
+
+	return nil
+}
+
+func (a *Adapter) RemovePolicies(sec string, ptype string, rules [][]string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
+	defer cancel()
+
+	ops := []client.Op{}
+
+	for _, r := range rules {
+		rule := a.convertRule(ptype, r)
+		ops = append(ops, client.OpDelete(a.constructPath(rule.Key)))
+	}
+
+	txnResp, err := a.conn.Txn(ctx).Then(ops...).Commit()
+	if err != nil {
+		return err
+	}
+
+	if !txnResp.Succeeded {
+		return errors.New("RemovePolicies: transaction failed")
+	}
+
+	return nil
+}
+
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage.
 // Part of the Auto-Save feature.
 func (a *Adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {

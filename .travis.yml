@@ -10,9 +10,8 @@ service:
 
 before_install:
   - echo $TRAVIS_GO_VERSION
-  - go install github.com/mattn/goveralls@latest
   - docker pull quay.io/coreos/etcd:v3.3.10
   - docker run -d -p 2379:2379 quay.io/coreos/etcd:v3.3.10 etcd --name test-etcd --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://0.0.0.0:2379
 
 script:
-  - $HOME/gopath/bin/goveralls -service=travis-ci
+  - go test -cover

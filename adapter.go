@@ -105,9 +105,6 @@ func (a *Adapter) close() {
 
 // LoadPolicy loads all of policys from ETCD
 func (a *Adapter) LoadPolicy(model model.Model) error {
-	// Emits the time required to load the policy from storage
-	defer recordOp("Loaded policy in ", time.Now())
-
 	var rule CasbinRule
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
@@ -425,8 +422,4 @@ func (a *Adapter) removeFilteredPolicy(filter string) error {
 		}
 	}
 	return nil
-}
-
-func recordOp(msg string, start time.Time) {
-	fmt.Printf("%s %s\n", msg, time.Since(start))
 }

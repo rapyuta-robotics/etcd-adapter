@@ -131,27 +131,35 @@ func (a *Adapter) getRootKey() string {
 }
 
 func (a *Adapter) loadPolicy(rule CasbinRule, model model.Model) {
-	lineText := rule.PType
+	var line strings.Builder
+	line.WriteString(rule.PType)
+
 	if rule.V0 != "" {
-		lineText += ", " + rule.V0
+		line.WriteString(", ")
+		line.WriteString(rule.V0)
 	}
 	if rule.V1 != "" {
-		lineText += ", " + rule.V1
+		line.WriteString(", ")
+		line.WriteString(rule.V1)
 	}
 	if rule.V2 != "" {
-		lineText += ", " + rule.V2
+		line.WriteString(", ")
+		line.WriteString(rule.V2)
 	}
 	if rule.V3 != "" {
-		lineText += ", " + rule.V3
+		line.WriteString(", ")
+		line.WriteString(rule.V3)
 	}
 	if rule.V4 != "" {
-		lineText += ", " + rule.V4
+		line.WriteString(", ")
+		line.WriteString(rule.V4)
 	}
 	if rule.V5 != "" {
-		lineText += ", " + rule.V5
+		line.WriteString(", ")
+		line.WriteString(rule.V5)
 	}
 
-	persist.LoadPolicyLine(lineText, model)
+	persist.LoadPolicyLine(line.String(), model)
 }
 
 // This will rewrite all of policies in ETCD with the current data in Casbin
@@ -260,6 +268,55 @@ func (a *Adapter) RemovePolicy(sec string, ptype string, line []string) error {
 	defer cancel()
 	_, err := a.conn.Delete(ctx, a.constructPath(rule.Key))
 	return err
+}
+
+// AddPolicies adds a list of policy rules to the storage
+func (a *Adapter) AddPolicies(sec string, ptype string, rules [][]string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
+	defer cancel()
+
+	ops := []client.Op{}
+
+	for _, r := range rules {
+		rule := a.convertRule(ptype, r)
+		ruleData, _ := json.Marshal(rule)
+		ops = append(ops, client.OpPut(a.constructPath(rule.Key), string(ruleData)))
+	}
+
+	txnResp, err := a.conn.Txn(ctx).Then(ops...).Commit()
+	if err != nil {
+		return err
+	}
+
+	if !txnResp.Succeeded {
+		return errors.New("AddPolicies: transaction failed")
+	}
+
+	return nil
+}
+
+// RemovePolicies removes a list of policy rules fro mthe storage
+func (a *Adapter) RemovePolicies(sec string, ptype string, rules [][]string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
+	defer cancel()
+
+	ops := []client.Op{}
+
+	for _, r := range rules {
+		rule := a.convertRule(ptype, r)
+		ops = append(ops, client.OpDelete(a.constructPath(rule.Key)))
+	}
+
+	txnResp, err := a.conn.Txn(ctx).Then(ops...).Commit()
+	if err != nil {
+		return err
+	}
+
+	if !txnResp.Succeeded {
+		return errors.New("RemovePolicies: transaction failed")
+	}
+
+	return nil
 }
 
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage.

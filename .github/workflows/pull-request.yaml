@@ -1,0 +1,29 @@
+name: Run Unit Tests 🚨
+
+on: [ push ]
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 'stable'
+          check-latest: true
+
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Download Dependencies
+        run: "go mod download all"
+
+      - name: Setup etcd
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install etcd -y
+
+      - name: Unit Tests
+        run: |
+          go test -v ./...

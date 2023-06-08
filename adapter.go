@@ -52,24 +52,26 @@ type CasbinRule struct {
 
 // Adapter represents the ETCD adapter for policy storage.
 type Adapter struct {
-	etcdEndpoints []string
-	key           string
+	etcdEndpoints         []string
+	key                   string
+	createKeyIfNotPresent bool
 
 	// etcd connection client
 	conn *client.Client
 }
 
-func NewAdapter(etcdEndpoints []string, key string) *Adapter {
-	return newAdapter(etcdEndpoints, key)
+func NewAdapter(etcdEndpoints []string, key string, createKeyIfNotPresent bool) *Adapter {
+	return newAdapter(etcdEndpoints, key, createKeyIfNotPresent)
 }
 
-func newAdapter(etcdEndpoints []string, key string) *Adapter {
+func newAdapter(etcdEndpoints []string, key string, createKeyIfNotPresent bool) *Adapter {
 	if key == "" {
 		key = DEFAULT_KEY
 	}
 	a := &Adapter{
-		etcdEndpoints: etcdEndpoints,
-		key:           key,
+		etcdEndpoints:         etcdEndpoints,
+		key:                   key,
+		createKeyIfNotPresent: createKeyIfNotPresent,
 	}
 	a.connect()
 
@@ -91,7 +93,14 @@ func (a *Adapter) connect() {
 	if err != nil {
 		panic(err)
 	}
+
 	a.conn = connection
+
+	if a.createKeyIfNotPresent {
+		if err := a.createRootKey(); err != nil {
+			panic(err)
+		}
+	}
 }
 
 // finalizer is the destructor for Adapter.
@@ -99,28 +108,53 @@ func finalizer(a *Adapter) {
 	a.conn.Close()
 }
 
+// createRootKey creates the root key if it doesn't exist
+func (a *Adapter) createRootKey() error {
+	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
+	defer cancel()
+
+	g, err := a.conn.Get(ctx, a.key)
+	if err != nil {
+		return err
+	}
+
+	if g.Count > 0 {
+		return nil
+	}
+
+	_, err = a.conn.Put(ctx, a.key, "0")
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (a *Adapter) close() {
 	a.conn.Close()
 }
 
-// LoadPolicy loads all of policys from ETCD
+// LoadPolicy loads all policies from etcd
 func (a *Adapter) LoadPolicy(model model.Model) error {
 	var rule CasbinRule
+
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
+
 	getResp, err := a.conn.Get(ctx, a.getRootKey(), client.WithPrefix())
 	if err != nil {
 		return err
 	}
+
 	if len(getResp.Kvs) == 0 {
-		// there is no policy
-		return errors.New("there is no policy in ETCD for the moment")
+		return nil
 	}
+
 	for _, kv := range getResp.Kvs {
-		err = json.Unmarshal(kv.Value, &rule)
-		if err != nil {
+		if err := json.Unmarshal(kv.Value, &rule); err != nil {
 			return err
 		}
+
 		a.loadPolicy(rule, model)
 	}
 	return nil
@@ -162,7 +196,7 @@ func (a *Adapter) loadPolicy(rule CasbinRule, model model.Model) {
 	persist.LoadPolicyLine(line.String(), model)
 }
 
-// This will rewrite all of policies in ETCD with the current data in Casbin
+// SavePolicy will rewrite all of policies in ETCD with the current data in Casbin
 func (a *Adapter) SavePolicy(model model.Model) error {
 	// clean old rule data
 	a.destroy()

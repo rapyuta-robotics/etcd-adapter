@@ -52,9 +52,8 @@ type CasbinRule struct {
 
 // Adapter represents the ETCD adapter for policy storage.
 type Adapter struct {
-	etcdEndpoints         []string
-	key                   string
-	createKeyIfNotPresent bool
+	etcdEndpoints []string
+	key           string
 
 	// etcd connection client
 	conn *client.Client

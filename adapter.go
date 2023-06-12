@@ -60,18 +60,17 @@ type Adapter struct {
 	conn *client.Client
 }
 
-func NewAdapter(etcdEndpoints []string, key string, createKeyIfNotPresent bool) *Adapter {
-	return newAdapter(etcdEndpoints, key, createKeyIfNotPresent)
+func NewAdapter(etcdEndpoints []string, key string) *Adapter {
+	return newAdapter(etcdEndpoints, key)
 }
 
-func newAdapter(etcdEndpoints []string, key string, createKeyIfNotPresent bool) *Adapter {
+func newAdapter(etcdEndpoints []string, key string) *Adapter {
 	if key == "" {
 		key = DEFAULT_KEY
 	}
 	a := &Adapter{
-		etcdEndpoints:         etcdEndpoints,
-		key:                   key,
-		createKeyIfNotPresent: createKeyIfNotPresent,
+		etcdEndpoints: etcdEndpoints,
+		key:           key,
 	}
 	a.connect()
 
@@ -96,10 +95,8 @@ func (a *Adapter) connect() {
 
 	a.conn = connection
 
-	if a.createKeyIfNotPresent {
-		if err := a.createRootKey(); err != nil {
-			panic(err)
-		}
+	if err := a.createRootKey(); err != nil {
+		panic(err)
 	}
 }
 

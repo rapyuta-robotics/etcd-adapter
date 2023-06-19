@@ -1,0 +1,21 @@
+name: Check Commit Hygiene 💬
+
+on:
+  pull_request:
+    branches:
+      - master
+      - main
+      - devel
+
+jobs:
+  commit-hygiene:
+    name: Conventional Commits
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        name: Checkout Code
+
+      - uses: rapyuta-robotics/action-conventional-commits@v1.1.1
+        name: Check Commit Message Compliance
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

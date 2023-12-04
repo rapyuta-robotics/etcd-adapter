@@ -305,9 +305,17 @@ func (a *Adapter) AddPolicies(sec string, ptype string, rules [][]string) error 
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
 
-	ops := []client.Op{}
+	var ops []client.Op
+	ruleMap := make(map[string]struct{})
 
 	for _, r := range rules {
+		// Rule out duplicates from the request
+		hash := strings.Join(r, "")
+		if _, ok := ruleMap[hash]; ok {
+			continue
+		}
+		ruleMap[hash] = struct{}{}
+
 		rule := a.convertRule(ptype, r)
 		ruleData, _ := json.Marshal(rule)
 		ops = append(ops, client.OpPut(a.constructPath(rule.Key), string(ruleData)))
@@ -330,9 +338,17 @@ func (a *Adapter) RemovePolicies(sec string, ptype string, rules [][]string) err
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
 
-	ops := []client.Op{}
+	var ops []client.Op
+	ruleMap := make(map[string]struct{})
 
 	for _, r := range rules {
+		// Rule out duplicates from the request
+		hash := strings.Join(r, "")
+		if _, ok := ruleMap[hash]; ok {
+			continue
+		}
+		ruleMap[hash] = struct{}{}
+
 		rule := a.convertRule(ptype, r)
 		ops = append(ops, client.OpDelete(a.constructPath(rule.Key)))
 	}

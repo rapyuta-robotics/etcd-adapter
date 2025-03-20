@@ -11,8 +11,10 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
 	client "go.etcd.io/etcd/client/v3"
@@ -26,7 +28,7 @@ const (
 	// transport is alive.
 	DIALKEEPALIVETIME = 5 * time.Second
 
-	REQUESTTIMEOUT = 5 * time.Second
+	REQUESTTIMEOUT = 500 * time.Second
 
 	// DialKeepAliveTimeout is the time that the client waits for a response for the
 	// keep-alive probe. If the response is not received in this time, the connection is closed.
@@ -56,20 +58,19 @@ type Adapter struct {
 	key           string
 
 	// etcd connection client
-	conn *client.Client
+	conn Etcd
+
+	transactionMu *sync.Mutex
 }
 
 func NewAdapter(etcdEndpoints []string, key string) *Adapter {
-	return newAdapter(etcdEndpoints, key)
-}
-
-func newAdapter(etcdEndpoints []string, key string) *Adapter {
 	if key == "" {
 		key = DEFAULT_KEY
 	}
 	a := &Adapter{
 		etcdEndpoints: etcdEndpoints,
 		key:           key,
+		transactionMu: new(sync.Mutex),
 	}
 	a.connect()
 
@@ -92,33 +93,38 @@ func (a *Adapter) connect() {
 		panic(err)
 	}
 
-	a.conn = connection
+	a.conn = &etcdClient{client: connection}
 
-	if err := a.createRootKey(); err != nil {
+	if err = a.createRootKey(connection); err != nil {
 		panic(err)
 	}
 }
 
 // finalizer is the destructor for Adapter.
 func finalizer(a *Adapter) {
-	a.conn.Close()
+	conn, ok := a.conn.(*etcdClient)
+	if !ok {
+		return
+	}
+
+	conn.client.Close()
 }
 
 // createRootKey creates the root key if it doesn't exist
-func (a *Adapter) createRootKey() error {
+func (a *Adapter) createRootKey(c *client.Client) error {
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
 
-	g, err := a.conn.Get(ctx, a.key)
+	getResp, err := c.Get(ctx, a.key)
 	if err != nil {
 		return err
 	}
 
-	if g.Count > 0 {
+	if getResp.Count > 0 {
 		return nil
 	}
 
-	_, err = a.conn.Put(ctx, a.key, "0")
+	_, err = c.Put(ctx, a.key, "0")
 	if err != nil {
 		return err
 	}
@@ -127,17 +133,23 @@ func (a *Adapter) createRootKey() error {
 }
 
 func (a *Adapter) close() {
-	a.conn.Close()
+	conn := a.conn.(*etcdClient).client
+	conn.Close()
 }
 
 // LoadPolicy loads all policies from etcd
 func (a *Adapter) LoadPolicy(model model.Model) error {
 	var rule CasbinRule
 
+	conn, ok := a.conn.(*etcdClient)
+	if !ok {
+		return errors.New("not supported inside a transaction")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
 
-	getResp, err := a.conn.Get(ctx, a.getRootKey(), client.WithPrefix())
+	getResp, err := conn.client.Get(ctx, a.getRootKey(), client.WithPrefix())
 	if err != nil {
 		return err
 	}
@@ -216,9 +228,10 @@ func (a *Adapter) SavePolicy(model model.Model) error {
 
 // destroy or clean all of policy
 func (a *Adapter) destroy() error {
+	conn := a.conn.(*etcdClient).client
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
-	_, err := a.conn.Delete(ctx, a.getRootKey(), client.WithPrefix())
+	_, err := conn.Do(ctx, client.OpDelete(a.getRootKey(), client.WithPrefix()))
 	return err
 }
 
@@ -267,7 +280,7 @@ func (a *Adapter) savePolicy(rules []CasbinRule) error {
 	defer cancel()
 	for _, rule := range rules {
 		ruleData, _ := json.Marshal(rule)
-		_, err := a.conn.Put(ctx, a.constructPath(rule.Key), string(ruleData))
+		err := a.conn.Do(ctx, client.OpPut(a.constructPath(rule.Key), string(ruleData)))
 		if err != nil {
 			return err
 		}
@@ -286,7 +299,7 @@ func (a *Adapter) AddPolicy(sec string, ptype string, line []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
 	ruleData, _ := json.Marshal(rule)
-	_, err := a.conn.Put(ctx, a.constructPath(rule.Key), string(ruleData))
+	err := a.conn.Do(ctx, client.OpPut(a.constructPath(rule.Key), string(ruleData)))
 	return err
 }
 
@@ -296,8 +309,30 @@ func (a *Adapter) RemovePolicy(sec string, ptype string, line []string) error {
 	rule := a.convertRule(ptype, line)
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
-	_, err := a.conn.Delete(ctx, a.constructPath(rule.Key))
+	err := a.conn.Do(ctx, client.OpDelete(a.constructPath(rule.Key)))
 	return err
+}
+
+// UpdatePolicy updates a policy rule to the storage.
+// Part of the Auto-Save feature.
+func (a *Adapter) UpdatePolicy(sec string, ptype string, oldRule, newPolicy []string) error {
+	oldPolicy := a.convertRule(ptype, oldRule)
+	newRule := a.convertRule(ptype, newPolicy)
+	newRuleData, _ := json.Marshal(newRule)
+
+	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
+	defer cancel()
+
+	txn, commit := a.getTransaction()
+
+	txn.If(ctx, client.Compare(client.CreateRevision(a.constructPath(oldPolicy.Key)), ">", 0))
+	txn.Then(ctx,
+		client.OpDelete(a.constructPath(oldPolicy.Key)),
+		client.OpPut(a.constructPath(newRule.Key), string(newRuleData)),
+	)
+	txn.Else(ctx, client.OpPut(a.constructPath(newRule.Key), string(newRuleData)))
+
+	return commit(ctx)
 }
 
 // AddPolicies adds a list of policy rules to the storage
@@ -305,7 +340,8 @@ func (a *Adapter) AddPolicies(sec string, ptype string, rules [][]string) error 
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
 
-	var ops []client.Op
+	txn, commit := a.getTransaction()
+
 	ruleMap := make(map[string]struct{})
 
 	for _, r := range rules {
@@ -318,27 +354,19 @@ func (a *Adapter) AddPolicies(sec string, ptype string, rules [][]string) error 
 
 		rule := a.convertRule(ptype, r)
 		ruleData, _ := json.Marshal(rule)
-		ops = append(ops, client.OpPut(a.constructPath(rule.Key), string(ruleData)))
+		txn.Then(ctx, client.OpPut(a.constructPath(rule.Key), string(ruleData)))
 	}
 
-	txnResp, err := a.conn.Txn(ctx).Then(ops...).Commit()
-	if err != nil {
-		return err
-	}
-
-	if !txnResp.Succeeded {
-		return errors.New("AddPolicies: transaction failed")
-	}
-
-	return nil
+	return commit(ctx)
 }
 
-// RemovePolicies removes a list of policy rules fro mthe storage
+// RemovePolicies removes a list of policy rules from the storage
 func (a *Adapter) RemovePolicies(sec string, ptype string, rules [][]string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
 
-	var ops []client.Op
+	txn, commit := a.getTransaction()
+
 	ruleMap := make(map[string]struct{})
 
 	for _, r := range rules {
@@ -350,16 +378,35 @@ func (a *Adapter) RemovePolicies(sec string, ptype string, rules [][]string) err
 		ruleMap[hash] = struct{}{}
 
 		rule := a.convertRule(ptype, r)
-		ops = append(ops, client.OpDelete(a.constructPath(rule.Key)))
+		txn.Then(ctx, client.OpDelete(a.constructPath(rule.Key)))
 	}
 
-	txnResp, err := a.conn.Txn(ctx).Then(ops...).Commit()
-	if err != nil {
-		return err
+	return commit(ctx)
+}
+
+// UpdatePolicies updates a list of policy rules to the storage
+func (a *Adapter) UpdatePolicies(sec string, ptype string, oldRules, newRules [][]string) error {
+	if len(oldRules) != len(newRules) {
+		return errors.New("UpdatePolicies: oldRules and newRules did not match")
 	}
 
-	if !txnResp.Succeeded {
-		return errors.New("RemovePolicies: transaction failed")
+	_, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
+	defer cancel()
+
+	ruleMap := make(map[string]struct{})
+
+	for i := 0; i < len(oldRules); i++ {
+		// Rule out duplicates from the request
+		hash := strings.Join(oldRules[i], "")
+		if _, ok := ruleMap[hash]; ok {
+			continue
+		}
+
+		ruleMap[hash] = struct{}{}
+
+		if a.UpdatePolicy(sec, ptype, oldRules[i], newRules[i]) != nil {
+			continue
+		}
 	}
 
 	return nil
@@ -443,13 +490,16 @@ func (a *Adapter) constructFilter(rule CasbinRule) string {
 }
 
 func (a *Adapter) removeFilteredPolicy(filter string) error {
+	conn := a.conn.(*etcdClient).client
 	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
 	defer cancel()
 	// get all policy key
-	getResp, err := a.conn.Get(ctx, a.constructPath(""), client.WithPrefix(), client.WithKeysOnly())
+	g, err := conn.Do(ctx, client.OpGet(a.constructPath(""), client.WithPrefix(), client.WithKeysOnly()))
 	if err != nil {
 		return err
 	}
+
+	getResp := g.Get()
 	var filteredKeys []string
 	for _, kv := range getResp.Kvs {
 		matched, err := regexp.MatchString(filter, string(kv.Key))
@@ -462,10 +512,134 @@ func (a *Adapter) removeFilteredPolicy(filter string) error {
 	}
 
 	for _, key := range filteredKeys {
-		_, err := a.conn.Delete(ctx, key)
+		err = a.conn.Do(ctx, client.OpDelete(key))
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// UpdateFilteredPolicies updates policy rules that match the filter from the storage.
+// Part of the Auto-Save feature.
+func (a *Adapter) UpdateFilteredPolicies(sec string, ptype string, newPolicies [][]string, fieldIndex int, fieldValues ...string) ([][]string, error) {
+	rule := CasbinRule{}
+
+	rule.PType = ptype
+	if fieldIndex <= 0 && 0 < fieldIndex+len(fieldValues) {
+		rule.V0 = fieldValues[0-fieldIndex]
+	}
+	if fieldIndex <= 1 && 1 < fieldIndex+len(fieldValues) {
+		rule.V1 = fieldValues[1-fieldIndex]
+	}
+	if fieldIndex <= 2 && 2 < fieldIndex+len(fieldValues) {
+		rule.V2 = fieldValues[2-fieldIndex]
+	}
+	if fieldIndex <= 3 && 3 < fieldIndex+len(fieldValues) {
+		rule.V3 = fieldValues[3-fieldIndex]
+	}
+	if fieldIndex <= 4 && 4 < fieldIndex+len(fieldValues) {
+		rule.V4 = fieldValues[4-fieldIndex]
+	}
+	if fieldIndex <= 5 && 5 < fieldIndex+len(fieldValues) {
+		rule.V5 = fieldValues[5-fieldIndex]
+	}
+
+	filter := a.constructFilter(rule)
+
+	return newPolicies, a.updateFilteredPolicies(ptype, filter, newPolicies)
+}
+
+func (a *Adapter) updateFilteredPolicies(ptype string, filter string, newPolicies [][]string) error {
+	conn := a.conn.(*etcdClient).client
+	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
+	defer cancel()
+
+	txn, commit := a.getTransaction()
+	txn.If(ctx, client.Compare(client.CreateRevision(a.key), ">", 0))
+
+	getResp, err := conn.Get(ctx, a.constructPath(""), client.WithPrefix(), client.WithKeysOnly())
+	if err != nil {
+		return err
+	}
+
+	var thenOps []client.Op
+	for _, kv := range getResp.Kvs {
+		matched, err := regexp.MatchString(filter, string(kv.Key))
+		if err != nil {
+			return err
+		}
+		if matched {
+			thenOps = append(thenOps, client.OpDelete(a.constructPath(string(kv.Key))))
+		}
+	}
+
+	for _, rule := range newPolicies {
+		newPolicy := a.convertRule(ptype, rule)
+		newRuleData, _ := json.Marshal(newPolicy)
+
+		thenOps = append(thenOps, client.OpPut(a.constructPath(newPolicy.Key), string(newRuleData)))
+	}
+	return commit(ctx)
+}
+
+func (a *Adapter) Transaction(e casbin.IEnforcer, fc func(casbin.IEnforcer) error) error {
+	a.transactionMu.Lock()
+	defer a.transactionMu.Unlock()
+
+	txn, commit := a.getTransaction()
+
+	defer func() {
+		e.SetAdapter(a.Copy())
+
+		// Check if this is needed.
+		if err := e.LoadPolicy(); err != nil {
+			panic(err)
+		}
+	}()
+
+	b := a.Copy()
+	b.conn = txn
+	copyEnforcer := e
+	copyEnforcer.SetAdapter(b)
+
+	ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
+	defer cancel()
+
+	if err := fc(copyEnforcer); err != nil {
+		return err
+	}
+
+	return commit(ctx)
+}
+
+func (a *Adapter) Copy() *Adapter {
+	return &Adapter{
+		etcdEndpoints: a.etcdEndpoints,
+		key:           a.key,
+		conn:          a.conn,
+	}
+}
+
+func (a *Adapter) getTransaction() (*etcdTxn, func(context.Context) error) {
+	var (
+		txn      *etcdTxn
+		isClient bool
+	)
+
+	switch client := a.conn.(type) {
+	case *etcdClient:
+		isClient = true
+		txn = &etcdTxn{}
+	case *etcdTxn:
+		txn = client
+	}
+
+	return txn, func(ctx context.Context) error {
+		if !isClient {
+			return nil
+		}
+
+		return txn.Commit(ctx, a.conn.(*etcdClient).client)
+	}
 }
